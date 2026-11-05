@@ -1,0 +1,8 @@
+{
+  "blur": { "size": 6, "passes": 2, "vibrancy": 0.08, "brightness": 1.15, "contrast": 0.9, "noise": 0 },
+  "depth": {
+    "style": "recessed",
+    "dark": { "win_depth": 0.896, "win_soft": 14, "win_light": 0.3, "win_lip": 0.64 },
+    "light": { "win_depth": 0.45, "win_soft": 10, "win_light": 0.3, "win_lip": 0.5 }
+  }
+}

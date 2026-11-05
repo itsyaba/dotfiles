@@ -5,6 +5,16 @@ local S = { enabled = true, style = "recessed", -- "recessed" or "raised"
   light = { win_depth = 0.45, win_soft = 10, win_light = 0.3, win_lip = 0.5 },
   dark = { win_depth = 0.896, win_soft = 14, win_light = 0.3, win_lip = 0.64 } }
 
+-- Overrides from studio.json (edited live by the Pebble Studio drawer).
+local ok_s, studio = pcall(dofile, os.getenv("HOME") .. "/.config/caelestia/studio-load.lua")
+local depth = ok_s and type(studio) == "table" and studio.depth
+if type(depth) == "table" then
+  if depth.style == "off" then S.enabled = false elseif depth.style then S.style = depth.style end
+  for _, m in ipairs({ "light", "dark" }) do
+    if type(depth[m]) == "table" then for k, v in pairs(depth[m]) do S[m][k] = v end end
+  end
+end
+
 if not S.enabled then return end
 
 local ok, scheme = pcall(require, "scheme.current")

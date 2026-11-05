@@ -77,9 +77,11 @@ for _ in range(32):
 terminal_label=terminal_name or 'not detected'
 font_label='terminal default'
 if terminal_name=='kitty':
-    out=run(['kitty','+runpy','from kitty.cli import *; o=create_default_opts(); print(f"{o.font_family.family} / {o.font_size:g}pt")'],'')
-    if out: font_label=out.splitlines()[-1]
-    if font_label.startswith('None'): font_label=run(['fc-match','monospace','-f','%{family[0]}'],'monospace')+font_label[4:]
+    try: conf=(Path.home()/'.config/kitty/kitty.conf').read_text()
+    except OSError: conf=''
+    fam=re.search(r'^font_family\s+(.+)$',conf,re.M); size=re.search(r'^font_size\s+([\d.]+)',conf,re.M)
+    family=fam.group(1).strip() if fam else run(['fc-match','monospace','-f','%{family[0]}'],'monospace')
+    font_label=f"{family} / {size.group(1) if size else '11'}pt"
 elif terminal_name in ('foot','footclient'):
     try:
         conf=(Path.home()/'.config/foot/foot.ini').read_text()

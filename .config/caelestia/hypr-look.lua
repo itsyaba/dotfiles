@@ -3,17 +3,20 @@
 -- Kept from Caelestia/you: dwindle layout, gaps (HyprMod), rounding 15 (matches the shell).
 
 -- Glass: frosted blur with a little vibrancy, popups frosted too.
+-- Values come from studio.json (edited live by the Pebble Studio drawer).
+local ok, studio = pcall(dofile, os.getenv("HOME") .. "/.config/caelestia/studio-load.lua")
+local glass = (ok and type(studio) == "table" and studio.blur) or {}
 hl.config({
     decoration = {
         blur = {
             enabled            = true,
-            size               = 6,
-            passes             = 2,
+            size               = glass.size or 6,
+            passes             = glass.passes or 2,
             xray               = false,
-            noise              = 0,
-            contrast           = 0.9,
-            brightness         = 1.15,
-            vibrancy           = 0.08,
+            noise              = glass.noise or 0,
+            contrast           = glass.contrast or 0.9,
+            brightness         = glass.brightness or 1.15,
+            vibrancy           = glass.vibrancy or 0.08,
             popups             = true,
             popups_ignorealpha = 0.5,
         },
@@ -24,6 +27,11 @@ hl.config({
 -- blur on for it (and sets ignore_alpha from appearance.transparency.base in shell.json);
 -- xray makes it frost the wallpaper, not the window behind, so the frame reads as one even surface.
 hl.layer_rule({ name = "pebble-shell", match = { namespace = "caelestia-drawers" }, xray = true })
+-- Pebble panels (~/.config/quickshell/pebble): frost the painted surface only (fills are >= 0.35
+-- alpha), against the wallpaper like the frame. They animate themselves, so no Hyprland animation.
+hl.layer_rule({ name = "pebble-panels", match = { namespace = "^pebble-(corner|studio|usage)$" },
+                blur = true, ignore_alpha = 0.3, xray = true, no_anim = true })
+hl.layer_rule({ name = "pebble-hotcorner", match = { namespace = "^pebble-hotcorner$" }, no_anim = true })
 
 -- macOS-style motion: short durations, responsive start, soft landing.
 -- Speeds are in tenths of a second (2.8 = 280 ms).
