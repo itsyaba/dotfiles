@@ -1,0 +1,375 @@
+#!/usr/bin/python3 -I
+"""pebble-usage: Claude Code and Codex token usage from local logs, as one JSON object.
+
+Reads only session logs on disk (no credentials, no network):
+  Claude Code  ~/.claude*/projects/**/*.jsonl          (assistant message.usage)
+  Codex        $CODEX_HOME/sessions/**/rollout-*.jsonl  (event_msg token_count)
+
+Prints {"claude": {...}, "codex": {...}}; an agent with nothing to show is left out.
+Each agent: name, plan, tokensToday, days[7] {date, tokens}, models[] {model, name,
+tokens, input, output, cache}, limits[] {label, window, usedPercent, resetsAt,
+observedAt, reset, reached}, lastActivity, updatedAt.
+
+Per-file parse state is cached in ~/.cache/pebble-usage/ keyed by mtime/size and
+resumed from the last byte offset, so a rerun only reads what was appended.
+Only files touched inside the 7-day window are read at all.
+"""
+import json
+import os
+import re
+import sys
+import time
+from datetime import date, datetime, timedelta, timezone
+
+DAYS = 7
+CACHE_VERSION = 2
+HOME = os.path.expanduser("~")
+CACHE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache"), "pebble-usage")
+CACHE_FILE = os.path.join(CACHE_DIR, "state.json")
+
+NOW = time.time()
+TODAY = date.today()
+FIRST_DAY = TODAY - timedelta(days=DAYS - 1)
+CUTOFF = datetime.combine(FIRST_DAY, datetime.min.time()).timestamp()  # local midnight
+
+
+def iso(epoch):
+    return datetime.fromtimestamp(epoch, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def parse_ts(value):
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def num(value):
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+# ------------------------------------------------------------------ incremental file reader
+
+def head_of(path):
+    with open(path, "rb") as f:
+        return f.read(256).hex()
+
+
+def scan(path, st, entry, parse_line, fresh):
+    """Resume parsing `path` from the cached offset; reparse if it shrank or was rewritten."""
+    if entry and entry.get("m") == st.st_mtime_ns and entry.get("s") == st.st_size:
+        return entry
+    head = head_of(path)
+    if not entry or st.st_size < entry.get("o", 0) or entry.get("h") != head:
+        entry = {"o": 0, "st": fresh()}
+    state, offset = entry["st"], entry["o"]
+    with open(path, "rb") as f:
+        f.seek(offset)
+        for line in f:
+            if not line.endswith(b"\n"):
+                break  # a line still being written; pick it up next time
+            offset += len(line)
+            try:
+                parse_line(line, state)
+            except (ValueError, TypeError, KeyError, AttributeError):
+                pass
+    return {"m": st.st_mtime_ns, "s": st.st_size, "o": offset, "h": head, "st": state}
+
+
+def walk(root, match):
+    out = []
+    for dirpath, _dirs, files in os.walk(root):
+        for name in files:
+            if match(name):
+                path = os.path.join(dirpath, name)
+                try:
+                    out.append((path, os.stat(path)))
+                except OSError:
+                    pass
+    return out
+
+
+# ------------------------------------------------------------------ Claude Code
+
+def claude_fresh():
+    # e: dedupe key -> [ts, model, input, output, cacheWrite, cacheRead];  q: limit rejections
+    return {"e": {}, "q": []}
+
+
+def claude_line(line, state):
+    if b'"quotaLimits"' in line:
+        d = json.loads(line)
+        q = d.get("quotaLimits") or {}
+        ts = parse_ts(d.get("timestamp"))
+        if ts and q.get("resetsAt"):
+            state["q"].append([ts, str(q.get("rateLimitType") or ""), float(q["resetsAt"]), str(q.get("status") or "")])
+    if b'"usage"' not in line or b'"type":"assistant"' not in line:
+        return
+    d = json.loads(line)
+    if d.get("type") != "assistant":
+        return
+    m = d.get("message") or {}
+    u = m.get("usage")
+    model = m.get("model") or "unknown"
+    if not isinstance(u, dict) or model == "<synthetic>":
+        return
+    ts = parse_ts(d.get("timestamp"))
+    if ts is None or ts < CUTOFF:
+        return
+    key = "%s:%s" % (m.get("id") or d.get("uuid"), d.get("requestId") or "")
+    row = [ts, model, num(u.get("input_tokens")), num(u.get("output_tokens")),
+           num(u.get("cache_creation_input_tokens")), num(u.get("cache_read_input_tokens"))]
+    old = state["e"].get(key)
+    if old:  # streamed blocks repeat the message; keep the fullest counts
+        row = [min(old[0], ts), model] + [max(a, b) for a, b in zip(old[2:], row[2:])]
+    state["e"][key] = row
+
+
+def claude_roots():
+    roots = set()
+    for name in os.listdir(HOME):
+        if name.startswith(".claude") and os.path.isdir(os.path.join(HOME, name, "projects")):
+            roots.add(os.path.join(HOME, name, "projects"))
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    if env and os.path.isdir(os.path.join(env, "projects")):
+        roots.add(os.path.join(env, "projects"))
+    return sorted(roots)
+
+
+# ------------------------------------------------------------------ Codex
+
+def codex_fresh():
+    # e: [ts, model, input, output, cache];  rl: [ts, rate_limits] latest
+    return {"model": None, "prev": None, "e": [], "rl": None}
+
+
+def codex_line(line, state):
+    if b'"turn_context"' not in line and b'"token_count"' not in line and b'"session_meta"' not in line:
+        return
+    d = json.loads(line)
+    kind, p = d.get("type"), d.get("payload") or {}
+    if kind in ("turn_context", "session_meta"):
+        if p.get("model"):
+            state["model"] = p["model"]
+        return
+    if kind != "event_msg" or p.get("type") != "token_count":
+        return
+    ts = parse_ts(d.get("timestamp"))
+    if ts is None:
+        return
+    rl = p.get("rate_limits")
+    if isinstance(rl, dict) and rl.get("limit_id") in (None, "codex") and (rl.get("primary") or rl.get("secondary")):
+        if not state["rl"] or ts >= state["rl"][0]:
+            state["rl"] = [ts, rl]
+    info = p.get("info")
+    if not isinstance(info, dict):
+        return
+    total = info.get("total_token_usage") or {}
+    last = info.get("last_token_usage")
+    t = num(total.get("total_tokens"))
+    if state["prev"] is not None and t == state["prev"]:
+        return  # the same count re-emitted
+    if not isinstance(last, dict):  # builds without last_token_usage: diff the running total
+        before = state.get("pt") or {}
+        reset = state["prev"] is None or t < state["prev"]
+        last = {k: num(total.get(k)) - (0 if reset else num(before.get(k))) for k in total}
+    state["prev"] = t
+    state["pt"] = {k: num(v) for k, v in total.items()}
+    if ts < CUTOFF:
+        return
+    cached = num(last.get("cached_input_tokens"))
+    fresh_in = max(0, num(last.get("input_tokens")) - cached)  # input_tokens includes the cached part
+    state["e"].append([ts, state["model"] or "unknown", fresh_in, num(last.get("output_tokens")), cached])
+
+
+def codex_home():
+    return os.environ.get("CODEX_HOME") or os.path.join(HOME, ".codex")
+
+
+# ------------------------------------------------------------------ summarising
+
+def model_name(model):
+    name = re.sub(r"-\d{8}$", "", re.sub(r"^claude-", "", str(model)))
+    words, version = [], []
+    for part in name.split("-"):
+        if not part:
+            continue
+        if part[0].isdigit():
+            version.append(part)
+            continue
+        if version:
+            words.append(".".join(version))
+            version = []
+        words.append("GPT" if part == "gpt" else part[:1].upper() + part[1:])
+    if version:
+        words.append(".".join(version))
+    return " ".join(words) or "Unknown"
+
+
+def summarise(name, rows):
+    """rows: (ts, model, input, output, cache)"""
+    by_day = {(FIRST_DAY + timedelta(days=i)).isoformat(): 0 for i in range(DAYS)}
+    models = {}
+    last = 0
+    for ts, model, inp, out, cache in rows:
+        tokens = inp + out + cache
+        day = datetime.fromtimestamp(ts).date().isoformat()
+        if day not in by_day or tokens <= 0:
+            continue
+        by_day[day] += tokens
+        m = models.setdefault(model, [0, 0, 0])
+        m[0] += inp
+        m[1] += out
+        m[2] += cache
+        last = max(last, ts)
+    model_list = sorted(({"model": k, "name": model_name(k), "tokens": sum(v), "input": v[0], "output": v[1], "cache": v[2]}
+                         for k, v in models.items()), key=lambda r: -r["tokens"])
+    return {
+        "name": name,
+        "tokensToday": by_day[TODAY.isoformat()],
+        "days": [{"date": k, "tokens": v} for k, v in by_day.items()],
+        "models": model_list,
+        "limits": [],
+        "lastActivity": iso(last) if last else None,
+        "updatedAt": iso(NOW),
+    }
+
+
+def window_label(minutes, fallback):
+    if not minutes:
+        return fallback, ""
+    minutes = int(minutes)
+    if minutes >= 7 * 1440 - 60:
+        return "Weekly", "7 d" if minutes < 8 * 1440 else "%d d" % round(minutes / 1440)
+    if minutes >= 1440:
+        return "%d-day" % round(minutes / 1440), "%d d" % round(minutes / 1440)
+    if minutes >= 60:
+        return "Session", "%g h" % round(minutes / 60, 1)
+    return "Session", "%d m" % minutes
+
+
+def codex_limits(rl):
+    if not rl:
+        return []
+    ts, data = rl
+    out = []
+    for key, fallback in (("primary", "Session"), ("secondary", "Weekly")):
+        w = data.get(key)
+        if not isinstance(w, dict) or w.get("used_percent") is None:
+            continue
+        resets = w.get("resets_at")
+        if resets is None and w.get("resets_in_seconds") is not None:
+            resets = ts + float(w["resets_in_seconds"])  # relative to the record, not to now
+        label, span = window_label(w.get("window_minutes"), fallback)
+        expired = resets is not None and float(resets) <= NOW
+        out.append({
+            "label": label,
+            "window": span,
+            "usedPercent": 0.0 if expired else round(float(w["used_percent"]), 1),
+            "resetsAt": None if expired or resets is None else iso(float(resets)),
+            "observedAt": iso(ts),
+            "reset": expired,  # the window rolled over since this was recorded
+            "reached": not expired and float(w["used_percent"]) >= 100,
+        })
+    return out
+
+
+def claude_limits(rejections):
+    """Claude Code only logs its plan limits when a request is refused (HTTP 429). Report a
+    window as full while such a refusal's reset time is still ahead; otherwise say nothing."""
+    latest = {}
+    for ts, kind, resets, status in rejections:
+        if status == "rejected" and resets > NOW and (kind not in latest or ts > latest[kind][0]):
+            latest[kind] = (ts, resets)
+    out = []
+    for kind, (ts, resets) in sorted(latest.items()):
+        label = {"five_hour": "Session", "seven_day": "Weekly"}.get(kind, kind.replace("_", " ").capitalize() or "Limit")
+        out.append({"label": label, "window": {"five_hour": "5 h", "seven_day": "7 d"}.get(kind, ""),
+                    "usedPercent": 100.0, "resetsAt": iso(resets), "observedAt": iso(ts),
+                    "reset": False, "reached": True})
+    return out
+
+
+# ------------------------------------------------------------------ main
+
+def load_cache():
+    try:
+        with open(CACHE_FILE) as f:
+            c = json.load(f)
+        if c.get("v") == CACHE_VERSION and c.get("cutoff", 0) <= CUTOFF:
+            return c.get("files", {})
+    except (OSError, ValueError, AttributeError):
+        pass
+    return {}
+
+
+def save_cache(files):
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        tmp = CACHE_FILE + ".%d.tmp" % os.getpid()
+        with open(tmp, "w") as f:
+            json.dump({"v": CACHE_VERSION, "cutoff": CUTOFF, "files": files}, f, separators=(",", ":"))
+        os.replace(tmp, CACHE_FILE)
+    except OSError:
+        pass
+
+
+def prune(state_e, is_list):
+    """Drop rows that have aged out of the window so the cache stays small."""
+    if is_list:
+        return [r for r in state_e if r[0] >= CUTOFF]
+    return {k: r for k, r in state_e.items() if r[0] >= CUTOFF}
+
+
+def main():
+    cache = load_cache()
+    files = {}
+    result = {}
+
+    # Claude Code: only files touched inside the window can hold rows for it.
+    entries, rejections = {}, []
+    for root in claude_roots():
+        for path, st in walk(root, lambda n: n.endswith(".jsonl")):
+            if st.st_mtime < CUTOFF:
+                continue
+            e = scan(path, st, cache.get(path), claude_line, claude_fresh)
+            e["st"]["e"] = prune(e["st"]["e"], False)
+            files[path] = e
+            entries.update(e["st"]["e"])  # same key in two files (resumed/forked sessions) counts once
+            rejections.extend(e["st"]["q"])
+    claude = summarise("Claude Code", ((r[0], r[1], r[2], r[3], r[4] + r[5]) for r in entries.values()))
+    claude["limits"] = claude_limits(rejections)
+    claude["plan"] = None
+    if claude["lastActivity"] or claude["limits"]:
+        result["claude"] = claude
+
+    # Codex: the window's files for tokens, then older ones only until a rate-limit record turns up.
+    rows, rl = [], None
+    sessions = os.path.join(codex_home(), "sessions")
+    found = sorted(walk(sessions, lambda n: n.startswith("rollout-") and n.endswith(".jsonl")), key=lambda x: -x[1].st_mtime)
+    for path, st in found:
+        if st.st_mtime < CUTOFF and rl:
+            break
+        e = scan(path, st, cache.get(path), codex_line, codex_fresh)
+        e["st"]["e"] = prune(e["st"]["e"], True)
+        files[path] = e
+        rows.extend(e["st"]["e"])
+        if e["st"]["rl"] and (not rl or e["st"]["rl"][0] > rl[0]):
+            rl = e["st"]["rl"]
+    codex = summarise("Codex", rows)
+    codex["limits"] = codex_limits(rl)
+    plan = str((rl[1].get("plan_type") if rl else None) or "")
+    codex["plan"] = plan.capitalize() if plan else None
+    if codex["lastActivity"] or codex["limits"]:
+        result["codex"] = codex
+
+    save_cache(files)
+    json.dump(result, sys.stdout, separators=(",", ":"))
+    sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()

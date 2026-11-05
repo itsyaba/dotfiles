@@ -15,6 +15,17 @@ adapted to run on Caelestia instead of Omarchy.
 | `.config/caelestia/hypr-recess.lua` | Recessed / raised window depth, follows the Caelestia scheme (ported) |
 | `.config/caelestia/shell.json` | Caelestia shell settings |
 | `.config/quickshell/` | My own Quickshell configs: `gshot` screenshot UI, `desktop-media` music card, `hypr-settings` |
+| `.config/quickshell/pebble/` | Pebble panels on top of Caelestia (ported design): control corner, Studio, Usage limits |
+| `.config/caelestia/studio.json` | Glass + depth values, written by Studio, read by `hypr-look.lua` / `hypr-recess.lua` |
+| `.local/bin/pebble-usage` | Claude Code + Codex token/limit collector for the Usage drawer (local logs only) |
+
+## Pebble panels
+
+| Key | Panel |
+|---|---|
+| `Super+O` or push the pointer into the bottom-left corner | **Control corner**: drag/scroll the brightness, volume and mic arcs; Wi-Fi, Bluetooth, DND, keep awake, game mode and record toggles (right-click for the full Caelestia panel); battery; shortcuts to Studio, Usage, Settings, Power |
+| `Super+Shift+O` | **Studio**: shell opacity, blur (live), window depth style and tuning per light/dark theme |
+| `Super+Ctrl+O` | **Usage limits**: Claude Code and Codex tokens by day and model, Codex session/weekly limits |
 | `.config/fastfetch/` | `fastfetch` = dashboard (ported); `greeting.jsonc` = compact fetch for new shells |
 | `.config/fish/`, `.config/kitty/`, `.config/starship.toml` | Shell and terminal |
 | `.local/bin/` | Small helper scripts |

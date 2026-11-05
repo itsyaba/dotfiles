@@ -126,9 +126,10 @@ hl.monitor({
 })
 
 -- Pebble panels (~/.config/quickshell/pebble): control corner on Super+O or the bottom-left hot corner,
--- Studio (glass + depth) on Super+Shift+O
+-- Studio (glass + depth) on Super+Shift+O, Usage limits (Claude Code + Codex) on Super+Ctrl+O
 hl.on("hyprland.start", function()
     hl.exec_cmd("qs -c pebble -d")
 end)
 hl.bind("SUPER + O", hl.dsp.exec_cmd("qs -c pebble ipc call corner toggle"))
 hl.bind("SUPER + SHIFT + O", hl.dsp.exec_cmd("qs -c pebble ipc call studio toggle"))
+hl.bind("SUPER + CTRL + O", hl.dsp.exec_cmd("qs -c pebble ipc call usage toggle"))

@@ -2,6 +2,7 @@
 // top of Caelestia and follow its colours. Started from ~/.config/caelestia/hypr-user.lua.
 //   qs -c pebble ipc call corner toggle      (Super+O, or push the pointer into the bottom-left corner)
 //   qs -c pebble ipc call studio toggle      (Super+Shift+O)
+//   qs -c pebble ipc call usage toggle       (Super+Ctrl+O)
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -30,8 +31,11 @@ ShellRoot {
         screen: shell.focusedScreen()
     }
 
-    // Set once Usage.qml exists (see the Loader below).
-    property var usageDrawer: null
+    Usage {
+        id: usage
+        screen: shell.focusedScreen()
+    }
+    readonly property var usageDrawer: usage
 
     function openDrawer(d: var): void {
         if (!d) return;
@@ -59,6 +63,11 @@ ShellRoot {
     IpcHandler {
         target: "studio"
         function toggle(): void { studio.open ? studio.open = false : shell.openDrawer(studio); }
+    }
+    IpcHandler {
+        target: "usage"
+        function toggle(): void { usage.open ? usage.open = false : shell.openDrawer(usage); }
+        function refresh(): void { usage.refresh(); }
     }
 
     // Hot corner: a 2px target in each screen's bottom-left corner. A short dwell
