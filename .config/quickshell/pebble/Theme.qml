@@ -30,7 +30,12 @@ Singleton {
     readonly property color frost: Qt.rgba(surface.r, surface.g, surface.b, Math.max(0.35, base - (light ? 0.1 : 0)))
     readonly property color rim: Qt.rgba(1, 1, 1, light ? 0.5 : 0.1)
 
-    readonly property string family: "Adwaita Sans"
+    // Caelestia's own UI font (bundled with the shell, not installed system-wide).
+    readonly property string family: gsf.status === FontLoader.Ready ? gsf.name : "Rubik"
+    FontLoader {
+        id: gsf
+        source: "file:///etc/xdg/quickshell/caelestia/assets/google-sans-flex/GoogleSansFlex-VariableFont_GRAD,ROND,opsz,slnt,wdth,wght.ttf"
+    }
     readonly property string icons: "Material Symbols Rounded"
 
     // macOS-style curves, matching hypr-look.lua

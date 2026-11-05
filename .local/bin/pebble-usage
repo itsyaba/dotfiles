@@ -1,9 +1,12 @@
 #!/usr/bin/python3 -I
 """pebble-usage: Claude Code and Codex token usage from local logs, as one JSON object.
 
-Reads only session logs on disk (no credentials, no network):
+Tokens come from session logs on disk:
   Claude Code  ~/.claude*/projects/**/*.jsonl          (assistant message.usage)
   Codex        $CODEX_HOME/sessions/**/rollout-*.jsonl  (event_msg token_count)
+Claude plan limits (session / weekly %) come from Anthropic's usage endpoint, called with
+the existing Claude Code login at most every 2 minutes (read-only, the token is never
+written anywhere); limitsStatus says ok / offline / signin.
 
 Prints {"claude": {...}, "codex": {...}}; an agent with nothing to show is left out.
 Each agent: name, plan, tokensToday, days[7] {date, tokens}, models[] {model, name,
@@ -293,6 +296,95 @@ def claude_limits(rejections):
     return out
 
 
+API_CACHE = os.path.join(CACHE_DIR, "claude-api.json")
+API_TTL = 120          # seconds between calls to the usage endpoint
+API_STALE = 6 * 3600   # how long an old answer is still shown (marked offline)
+API_WINDOWS = (("five_hour", "Session", "5 h"), ("seven_day", "Weekly", "7 d"),
+               ("seven_day_opus", "Opus weekly", "7 d"), ("seven_day_sonnet", "Sonnet weekly", "7 d"))
+
+
+def claude_login():
+    """The newest unexpired Claude Code login: (token, tier, subscription) or None.
+    The token is only ever put in the request header below: never printed, logged or cached."""
+    dirs = {os.path.join(HOME, n) for n in os.listdir(HOME) if n.startswith(".claude")}
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        dirs.add(os.environ["CLAUDE_CONFIG_DIR"])
+    best = None
+    for d in dirs:
+        try:
+            with open(os.path.join(d, ".credentials.json")) as f:
+                o = json.load(f).get("claudeAiOauth") or {}
+        except (OSError, ValueError, AttributeError):
+            continue
+        exp = num(o.get("expiresAt")) / 1000
+        if o.get("accessToken") and exp > NOW + 30 and (not best or exp > best[0]):
+            best = (exp, o["accessToken"], o.get("rateLimitTier") or "", o.get("subscriptionType") or "")
+    return best[1:] if best else None
+
+
+def plan_name(tier, sub):
+    m = re.search(r"max_(\d+)x", tier)
+    if m:
+        return "Max %sx" % m.group(1)
+    return sub.capitalize() if sub else None
+
+
+def claude_api():
+    """Plan limits from Anthropic's usage endpoint: (status, limits, plan).
+    status is ok, offline (network failed; last answer shown if recent) or signin (no valid login)."""
+    try:
+        with open(API_CACHE) as f:
+            cached = json.load(f)
+    except (OSError, ValueError):
+        cached = None
+    if cached and NOW - cached.get("at", 0) < API_TTL:
+        return "ok", cached["limits"], cached.get("plan")
+
+    login = claude_login()
+    if not login:
+        return "signin", [], None
+    token, tier, sub = login
+    plan = plan_name(tier, sub)
+
+    import urllib.request
+    req = urllib.request.Request("https://api.anthropic.com/api/oauth/usage", headers={
+        "Authorization": "Bearer " + token, "anthropic-beta": "oauth-2025-04-20", "User-Agent": "pebble-usage"})
+    data = None
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=6) as r:
+                data = json.load(r)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                return "signin", [], plan
+        except (OSError, ValueError):
+            pass
+    if not isinstance(data, dict):
+        if cached and NOW - cached.get("at", 0) < API_STALE:
+            return "offline", cached["limits"], cached.get("plan") or plan
+        return "offline", [], plan
+
+    limits = []
+    for key, label, span in API_WINDOWS:
+        w = data.get(key)
+        if not isinstance(w, dict) or w.get("utilization") is None:
+            continue
+        used = max(0.0, min(100.0, float(w["utilization"])))
+        limits.append({"label": label, "window": span, "usedPercent": round(used, 1),
+                       "resetsAt": w.get("resets_at"), "observedAt": iso(NOW),
+                       "reset": False, "reached": used >= 100})
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        tmp = API_CACHE + ".%d.tmp" % os.getpid()
+        with open(tmp, "w") as f:
+            json.dump({"at": NOW, "plan": plan, "limits": limits}, f)
+        os.replace(tmp, API_CACHE)
+    except OSError:
+        pass
+    return "ok", limits, plan
+
+
 # ------------------------------------------------------------------ main
 
 def load_cache():
@@ -341,8 +433,10 @@ def main():
             entries.update(e["st"]["e"])  # same key in two files (resumed/forked sessions) counts once
             rejections.extend(e["st"]["q"])
     claude = summarise("Claude Code", ((r[0], r[1], r[2], r[3], r[4] + r[5]) for r in entries.values()))
-    claude["limits"] = claude_limits(rejections)
-    claude["plan"] = None
+    status, api_limits, plan = claude_api()
+    claude["limits"] = api_limits or claude_limits(rejections)
+    claude["limitsStatus"] = status
+    claude["plan"] = plan
     if claude["lastActivity"] or claude["limits"]:
         result["claude"] = claude
 

@@ -5,22 +5,6 @@
       "base": 0.55,
       "layers": 0.4
     },
-    "font": {
-      "headline": {
-        "family": "Adwaita Sans"
-      },
-      "title": {
-        "family": "Adwaita Sans"
-      },
-      "body": {
-        "family": "Adwaita Sans"
-      },
-      "label": {
-        "family": "Adwaita Sans"
-      },
-      "clock": "Adwaita Sans",
-      "workspaces": "Adwaita Sans"
-    },
     "anim": {
       "durations": {
         "scale": 0.8

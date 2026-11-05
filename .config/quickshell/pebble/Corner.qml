@@ -30,12 +30,12 @@ PanelWindow {
     color: "transparent"
     anchors.left: true
     anchors.bottom: true
-    // Grow out of Caelestia's 10px frame rather than over it.
-    margins.left: 10
-    margins.bottom: 10
     implicitWidth: fanR
     implicitHeight: fanR
-    exclusionMode: ExclusionMode.Ignore
+    // Normal + zone 0: sits in the frame's inner corner (and beside the bar when it is shown),
+    // so the fan grows out of the frame rather than over it.
+    exclusionMode: ExclusionMode.Normal
+    exclusiveZone: 0
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "pebble-corner"
     WlrLayershell.keyboardFocus: open ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
