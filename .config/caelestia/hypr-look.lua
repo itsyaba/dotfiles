@@ -20,6 +20,11 @@ hl.config({
     },
 })
 
+-- Pebble-style shell: the Caelestia bar + border + drawers are one layer. Caelestia turns
+-- blur on for it (and sets ignore_alpha from appearance.transparency.base in shell.json);
+-- xray makes it frost the wallpaper, not the window behind, so the frame reads as one even surface.
+hl.layer_rule({ name = "pebble-shell", match = { namespace = "caelestia-drawers" }, xray = true })
+
 -- macOS-style motion: short durations, responsive start, soft landing.
 -- Speeds are in tenths of a second (2.8 = 280 ms).
 hl.curve("macEase", { type = "bezier", points = { { 0.25, 1 }, { 0.5, 1 } } })
