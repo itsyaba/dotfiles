@@ -6,5 +6,5 @@ function fish_greeting
     echo '  / /___/ /_/ /  __/ /  __(__  ) /_/ / /_/ /  '
     echo '  \____/\__,_/\___/_/\___/____/\__/_/\__,_/   '
     set_color normal
-    command -v fastfetch &> /dev/null && fastfetch --key-padding-left 5
+    command -v fastfetch &> /dev/null && fastfetch -c ~/.config/fastfetch/greeting.jsonc --key-padding-left 5
 end

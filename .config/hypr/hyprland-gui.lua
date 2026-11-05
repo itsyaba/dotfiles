@@ -6,7 +6,6 @@ hl.config({
         hide_on_key_press = true,
     },
     general = {
-        border_size = 0,
         gaps_in = 3,
         gaps_out = 6,
     },

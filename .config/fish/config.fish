@@ -65,3 +65,6 @@ set -gx JAVA_HOME "$HOME/.local/share/jdk/jdk-17.0.20.1+1"
 set -gx ANDROID_HOME "$HOME/Android/Sdk"
 set -gx ANDROID_AVD_HOME "$HOME/.config/.android/avd"
 fish_add_path -g $JAVA_HOME/bin $ANDROID_HOME/cmdline-tools/latest/bin $ANDROID_HOME/platform-tools $ANDROID_HOME/emulator
+
+# Dotfiles repo (bare, work tree = $HOME). Use like git: dot status, dot add, dot commit, dot push
+alias dot 'git --git-dir=$HOME/.dotfiles --work-tree=$HOME'

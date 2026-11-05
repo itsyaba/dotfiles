@@ -1,3 +1,6 @@
+-- Look & feel + depth (ported from omarchy-dotfiles, see ~/.config/caelestia/hypr-look.lua)
+require("hypr-look")
+require("hypr-recess")
 
 -- GNOME-style screenshot UI (~/.config/quickshell/gshot)
 hl.on("hyprland.start", function()
