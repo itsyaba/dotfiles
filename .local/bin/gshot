@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Open the GNOME-style screenshot UI (or stop an active screencast).
+qs -c gshot ipc call gshot open 2>/dev/null && exit 0
+qs -c gshot -d >/dev/null 2>&1
+for _ in $(seq 20); do
+    sleep 0.1
+    qs -c gshot ipc call gshot open 2>/dev/null && exit 0
+done
+exit 1

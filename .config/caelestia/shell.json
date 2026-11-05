@@ -1,0 +1,116 @@
+{
+  "appearance": {
+    "transparency": {
+      "enabled": true
+    }
+  },
+  "background": {
+    "wallpaperEnabled": true,
+    "desktopClock": {
+      "enabled": true,
+      "position": "top-center",
+      "scale": 1.4,
+      "shadow": {
+        "enabled": false,
+        "opacity": 0.5,
+        "blur": 0.4
+      }
+    },
+    "visualiser": {
+      "enabled": false,
+      "autoHide": true,
+      "blur": true,
+      "rounding": 2,
+      "spacing": 2.5
+    }
+  },
+  "bar": {
+    "clock": {
+      "background": true
+    },
+    "persistent": false,
+    "popouts": {
+      "tray": true
+    },
+    "scrollActions": {
+      "workspaces": true
+    },
+    "showOnHover": true,
+    "tray": {
+      "background": false,
+      "compact": true,
+      "recolour": false
+    },
+    "workspaces": {
+      "activeIndicator": true,
+      "shown": 6,
+      "occupiedBg": true
+    }
+  },
+  "general": {
+    "apps": {
+      "terminal": [
+        "kitty"
+      ]
+    }
+  },
+  "launcher": {
+    "favouriteApps": [
+      "zen",
+      "dev.zed.Zed",
+      "spotify",
+      "io.github.kukuruzka165.materialgram",
+      "kitty",
+      "io.github.seadve.Kooha"
+    ],
+    "useFuzzy": {
+      "apps": false
+    }
+  },
+  "notifs": {
+    "defaultExpireTimeout": 6500
+  },
+  "services": {
+    "clockFormat": "Auto",
+    "weatherUnits": "Celsius",
+    "smartScheme": false
+  },
+  "utilities": {
+    "quickToggles": [
+      {
+        "enabled": true,
+        "id": "wifi"
+      },
+      {
+        "enabled": true,
+        "id": "bluetooth"
+      },
+      {
+        "enabled": true,
+        "id": "mic"
+      },
+      {
+        "enabled": true,
+        "id": "settings"
+      },
+      {
+        "enabled": false,
+        "id": "gameMode"
+      },
+      {
+        "enabled": true,
+        "id": "dnd"
+      },
+      {
+        "enabled": false,
+        "id": "vpn"
+      }
+    ],
+    "toasts": {
+      "nowPlaying": true
+    }
+  },
+  "border": {
+    "rounding": 15
+  }
+}

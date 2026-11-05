@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Show the Caelestia bar on the focused monitor when its workspace is empty,
+# hide it when windows are present. Called from Hyprland events (hypr-user.lua).
+
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/caelestia-bar-autoshow.lock"
+flock 9
+sleep 0.15 # let Hyprland finish mapping/unmapping the window
+
+windows=$(hyprctl activeworkspace -j | jq '.windows')
+special=$(hyprctl monitors -j | jq '.[] | select(.focused) | .specialWorkspace.id')
+
+want=0
+[ "$windows" = 0 ] && [ "$special" = 0 ] && want=1
+
+open=$(qs -c caelestia ipc call drawers isOpen bar)
+[ "$open" != "$want" ] && qs -c caelestia ipc call drawers toggle bar
+exit 0

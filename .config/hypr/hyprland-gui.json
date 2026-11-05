@@ -1,0 +1,7 @@
+{
+  "general:border_size": 0,
+  "general:gaps_in": 3,
+  "general:gaps_out": 6,
+  "cursor:hide_on_key_press": true,
+  "misc:middle_click_paste": true
+}
